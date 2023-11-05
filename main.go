@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -22,19 +21,11 @@ type Client struct {
 
 // ReadMessage 读取消息
 func (c *Client) ReadMessage(buf []byte) (string, error) {
-	bb := bytes.Buffer{}
-	for {
-		n, err := c.conn.Read(buf)
-		if err != nil {
-			return "", err
-		}
-		str := string(buf[:n])
-		if str[len(str)-1] == '\n' {
-			break
-		}
-		bb.WriteString(str)
+	n, err := c.conn.Read(buf)
+	if err != nil {
+		return "", err
 	}
-	return bb.String(), nil
+	return string(buf[:n]), nil
 }
 
 // SendMessage 发送消息
@@ -65,7 +56,7 @@ func (cr *ChatRoom) Start() {
 		panic(err)
 	}
 	defer ln.Close()
-
+	fmt.Println("ChatRoom Start!")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
