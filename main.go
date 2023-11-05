@@ -14,38 +14,19 @@ var (
 	serverPort = flag.Int("port", 1234, "server port")
 )
 
-type Client struct {
-	conn net.Conn
-	nick string
-}
-
-// ReadMessage 读取消息
-func (c *Client) ReadMessage(buf []byte) (string, error) {
-	n, err := c.conn.Read(buf)
-	if err != nil {
-		return "", err
-	}
-	return string(buf[:n]), nil
-}
-
-// SendMessage 发送消息
-func (c *Client) SendMessage(msg string) error {
-	_, err := c.conn.Write([]byte("\r\n" + msg + "\r\n"))
-	return err
-}
-
 // ChatRoom 聊天室
 type ChatRoom struct {
 	Port     int
-	Users    map[net.Conn]*Client
+	Users    map[int]*Client
 	UserLock sync.RWMutex
 	NumUser  int
+	seq int
 }
 
 func NewChatRoom(port int) *ChatRoom {
 	return &ChatRoom{
 		Port:    port,
-		Users:   make(map[net.Conn]*Client),
+		Users:   make(map[int]*Client),
 		NumUser: 0,
 	}
 }
@@ -63,7 +44,14 @@ func (cr *ChatRoom) Start() {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		client := &Client{conn: conn, nick: fmt.Sprintf("User%d", conn.RemoteAddr().(*net.TCPAddr).Port)}
+		
+		cr.seq += 1
+		client := &Client{
+			clientConn: NewClientConn(conn),
+			id:         cr.seq,
+			nick:       fmt.Sprintf("User%d", conn.RemoteAddr().(*net.TCPAddr).Port),
+		}
+
 		go cr.HandleClient(client)
 	}
 }
@@ -76,13 +64,29 @@ func (cr *ChatRoom) RemoveClient(client *Client) {
 	}
 
 	cr.UserLock.Lock()
-	delete(cr.Users, client.conn)
+	delete(cr.Users, client.id)
 	cr.NumUser--
 	cr.UserLock.Unlock()
 
-	if err = client.conn.Close(); err != nil {
+	if err = client.Close(); err != nil {
 		log.Printf("close error: %v", err)
 	}
+}
+
+// AddClient 增加client
+func (cr *ChatRoom) AddClient(client *Client) error {
+	err := client.SendMessage(fmt.Sprintf("Welcome to chat room!, there are %d users online", cr.NumUser))
+	if err != nil {
+		log.Printf("SendMessage error: %v", err)
+		return err
+	}
+
+	cr.UserLock.Lock()
+	defer cr.UserLock.Unlock()
+	cr.Users[client.id] = client
+	cr.NumUser++
+
+	return nil
 }
 
 // Broadcast 广播消息
@@ -97,20 +101,14 @@ func (cr *ChatRoom) Broadcast(msg string) {
 
 // HandleClient 持续接收用户消息并处理
 func (cr *ChatRoom) HandleClient(client *Client) {
-	welcomeMsg := fmt.Sprintf("Welcome to chat room!, there are %d users online", cr.NumUser)
-	err := client.SendMessage(welcomeMsg)
-	if err != nil {
-		log.Printf("SendMessage error: %v", err)
+	// 加入用户
+	if err := cr.AddClient(client); err != nil {
+		return
 	}
 
-	cr.UserLock.Lock()
-	cr.Users[client.conn] = client
-	cr.NumUser++
-	cr.UserLock.Unlock()
-
-	buf := make([]byte, 1024)
 	for {
-		msg, err := client.ReadMessage(buf)
+		msg, err := client.ReadMessage()
+		msg = strings.TrimSpace(msg)
 		if err != nil {
 			cr.RemoveClient(client)
 			if err != io.EOF {
@@ -118,7 +116,6 @@ func (cr *ChatRoom) HandleClient(client *Client) {
 			}
 			return
 		}
-		msg = strings.TrimSpace(msg)
 		if msg == "" {
 			continue
 		}
