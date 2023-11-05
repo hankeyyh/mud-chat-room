@@ -31,6 +31,7 @@ func NewChatRoom(port int) *ChatRoom {
 	}
 }
 
+// Start 启动聊天室
 func (cr *ChatRoom) Start() {
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cr.Port))
 	if err != nil {
@@ -44,7 +45,7 @@ func (cr *ChatRoom) Start() {
 			log.Printf("accept error: %v", err)
 			continue
 		}
-		
+
 		cr.seq += 1
 		client := &Client{
 			clientConn: NewClientConn(conn),
