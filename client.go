@@ -25,7 +25,7 @@ func (cc *ClientConn) ReadMessage(delim byte) (string, error) {
 			return "", err
 		}
 		builder.Write(cc.buf[:n])
-		if cc.buf[n-1] == '\n' {
+		if n == 0 || cc.buf[n-1] == delim {
 			break
 		}
 	}
